@@ -251,4 +251,47 @@ async function cloudSyncNow(){if(adplCloudBusy)return alert('Cloud sync पह�
 cloudStatus('Cloud पर सुरक्षित रूप से save कर रहे हैं…');const {data:userData}=await client.auth.getUser();const userId=userData.user&&userData.user.id;if(!userId)throw new Error('Supabase session नहीं मिली। दोबारा sign in करें।');const {error:upsertError}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userId,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});if(upsertError)throw upsertError;cloudStatus('Sync सफल — '+new Date().toLocaleString('en-IN')+' | Customers: '+db.customers.length+', Reports: '+db.reports.length+', Parts: '+db.parts.length+', Challans: '+(db.stockChallans||[]).length);alert('Local backup download और Supabase cloud sync सफल हुआ।');}catch(e){cloudStatus('Sync failed: '+(e.message||e),true);alert('Cloud sync failed: '+(e.message||e)+'\nSupabase table/RLS SQL और Auth user जाँचें। Local data आपके browser में सुरक्षित है।');}finally{adplCloudBusy=false;}}
 function cloudQueueSave(){if(!adplCloudReady||adplCloudBusy)return;clearTimeout(adplCloudTimer);adplCloudTimer=setTimeout(async()=>{try{const client=cloudClient();const {data:sessionData}=await client.auth.getSession();if(!sessionData.session)return;const {data:userData}=await client.auth.getUser();if(!userData.user)return;const {error}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userData.user.id,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});if(error)throw error;cloudStatus('Auto-sync saved: '+new Date().toLocaleTimeString('en-IN'));}catch(e){cloudStatus('Auto-sync error: '+e.message,true);}},1200);}
 
+
+// Automatic cloud startup: restore saved Supabase session, pull/merge cloud data,
+// then keep syncing after every saveDB() call. Local data is snapshotted before merge.
+async function cloudAutoStart(){
+  try{
+    const client=cloudClient();
+    const {data:sessionData,error:sessionError}=await client.auth.getSession();
+    if(sessionError) throw sessionError;
+    if(!sessionData.session){cloudStatus('Cloud: Sign in once to enable automatic saving.');return;}
+    adplCloudReady=true;
+    const localSnapshot=JSON.stringify({app:'Alliance Digitech Service App',version:1,backupDate:new Date().toISOString(),data:db});
+    localStorage.setItem(KEY+'_auto_backup_'+Date.now(),localSnapshot);
+    cloudStatus('Cloud session restored. Checking saved data…');
+    const {data:remote,error}=await client.from(ADPL_CLOUD_TABLE).select('id,payload,updated_at').eq('id','main').maybeSingle();
+    if(error) throw error;
+    if(remote && remote.payload){
+      const incoming=remote.payload;
+      const arrays=['customers','reports','parts','stockChallans'];
+      const localHas=arrays.some(k=>Array.isArray(db[k])&&db[k].length);
+      const cloudHas=arrays.some(k=>Array.isArray(incoming[k])&&incoming[k].length);
+      if(!localHas && cloudHas){ db={...incoming}; }
+      else if(localHas && cloudHas){
+        const merge=(remoteArr,localArr,key)=>{const m=new Map();(Array.isArray(remoteArr)?remoteArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);if(!m.has(k))m.set(k,x)});(Array.isArray(localArr)?localArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);if(!m.has(k))m.set(k,x)});return [...m.values()]};
+        db={...incoming,...db,customers:merge(incoming.customers,db.customers,'id'),reports:merge(incoming.reports,db.reports,'id'),parts:merge(incoming.parts,db.parts,'name'),stockChallans:merge(incoming.stockChallans,db.stockChallans,'no')};
+      }
+      db.customers=db.customers||[];db.reports=db.reports||[];db.parts=db.parts||[];db.stockChallans=db.stockChallans||[];
+      const scn=new Set();db.reports=db.reports.filter(r=>{const k=String(r.scnNo||'').trim().toLowerCase();if(!k)return true;if(scn.has(k))return false;scn.add(k);return true});
+      const ch=new Set();db.stockChallans=db.stockChallans.filter(c=>{const k=String(c.no||'').trim().toLowerCase();if(!k)return true;if(ch.has(k))return false;ch.add(k);return true});
+      localStorage.setItem(KEY,JSON.stringify(db));
+      render();refreshKeywordSuggestions();
+    }
+    const {data:userData,error:userError}=await client.auth.getUser();if(userError)throw userError;
+    if(!userData.user)throw new Error('Supabase session user नहीं मिला। दोबारा Cloud Sign In करें।');
+    const {error:upsertError}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userData.user.id,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});
+    if(upsertError)throw upsertError;
+    cloudStatus('Auto Cloud Sync चालू — बदलाव अपने-आप सेव होंगे। '+new Date().toLocaleTimeString('en-IN'));
+  }catch(e){adplCloudReady=false;cloudStatus('Auto-connect/sync error: '+(e.message||e),true);}
+}
+// Re-check connection when network returns or the tab becomes active.
+window.addEventListener('online',()=>{if(sessionStorage.ok)cloudAutoStart()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&sessionStorage.ok)cloudAutoStart()});
+setTimeout(()=>{if(sessionStorage.ok)cloudAutoStart()},700);
+
 </script></body></html>
