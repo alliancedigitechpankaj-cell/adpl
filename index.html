@@ -264,10 +264,17 @@ th{background:#f7f9fc}
 </div>
 
 <script>
-// Supabase Connection Initialization
+// Supabase Client Initialization
 const SUPABASE_URL = "https://xxjjszhbsyofzqxoqwrd.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_b2Fw1PCsg6qGWTviBrBFLQ_ZiNOUGoL";
-const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+let supabase = null;
+try {
+  if (window.supabase) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch(err) {
+  console.log("Supabase Init Error:", err);
+}
 
 const KEY = 'alliance_digitech_v1';
 let db = JSON.parse(localStorage.getItem(KEY) || '{"reports":[],"parts":[],"customers":[],"stockChallans":[]}');
@@ -305,205 +312,4 @@ async function syncFromSupabase() {
         date: r.service_date,
         engineer: r.engineer,
         status: r.status,
-        complaint: r.complaint,
-        work: r.work_done,
-        partsUsed: r.parts || []
-      }));
-    }
-
-    const { data: stks } = await supabase.from('stock_parts').select('*');
-    if (stks && stks.length) {
-      db.parts = stks.map(s => ({
-        name: s.part_name,
-        code: s.part_code,
-        qty: parseFloat(s.quantity) || 0,
-        min: parseFloat(s.minimum_stock) || 0
-      }));
-    }
-    localStorage.setItem(KEY, JSON.stringify(db));
-    render();
-  } catch(err) {
-    console.log("Supabase sync error:", err);
-  }
-}
-
-window.addEventListener('DOMContentLoaded', () => {
-  addCustomerMachineRow();
-  syncFromSupabase();
-});
-
-function backupData(){
-  try{
-    const payload = { app: 'Alliance Digitech Service App', version: 1, backupDate: new Date().toISOString(), data: db };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Alliance_Digitech_Backup_' + new Date().toISOString().slice(0, 10) + '.json';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    alert('Backup download ho gaya.');
-  } catch(err){ alert('Backup error: ' + err.message); }
-}
-
-function restoreData(event){
-  const file = event.target.files && event.target.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    try{
-      const parsed = JSON.parse(reader.result);
-      const incoming = parsed.data || parsed;
-      db = {
-        reports: Array.isArray(incoming.reports)?incoming.reports:[],
-        parts: Array.isArray(incoming.parts)?incoming.parts:[],
-        customers: Array.isArray(incoming.customers)?incoming.customers:[],
-        stockChallans: Array.isArray(incoming.stockChallans)?incoming.stockChallans:[]
-      };
-      saveDB();
-      alert('Backup restore ho gaya.');
-    } catch(err){ alert('Restore failed: ' + err.message); }
-  };
-  reader.readAsText(file);
-}
-
-function getPassword(){ return localStorage.getItem('alliance_app_password') || 'Alliance@00'; }
-function login(){
-  const lu = document.getElementById('lu'), lp = document.getElementById('lp'), loginErr = document.getElementById('loginErr');
-  if(lu.value.trim() === 'Alliance' && lp.value === getPassword()){
-    sessionStorage.ok = '1';
-    loginBox();
-  } else loginErr.textContent = 'Invalid User / Password';
-}
-function changePassword(){
-  let current = prompt('Current password:');
-  if(current === null) return;
-  if(current !== getPassword()) return alert('Current password गलत है');
-  let next = prompt('New password (कम से कम 6 characters):');
-  if(!next || next.length < 6) return alert('Password कम से कम 6 characters रखें');
-  let confirmPass = prompt('Confirm new password:');
-  if(next !== confirmPass) return alert('Password match नहीं हुआ');
-  localStorage.setItem('alliance_app_password', next);
-  alert('Password change हो गया।');
-}
-function loginBox(){
-  document.getElementById('login').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  render();
-}
-function logout(){ sessionStorage.clear(); location.reload(); }
-if(sessionStorage.ok) loginBox();
-
-function show(id){
-  ['dash','service','customers','stock','parts','reports','users'].forEach(x => {
-    const el = document.getElementById(x);
-    if(el) el.classList.toggle('hidden', x !== id);
-  });
-  render();
-}
-
-function render(){
-  document.getElementById('sReports').textContent = db.reports.length;
-  document.getElementById('sPending').textContent = db.reports.filter(r => r.status === 'Pending').length;
-  document.getElementById('sItems').textContent = db.parts.length;
-  document.getElementById('sLow').textContent = db.parts.filter(p => p.qty <= p.min).length;
-  renderCustomers();
-  renderReports();
-  renderStock();
-  renderPartTracking();
-}
-
-// CUSTOMERS
-function addCustomerMachineRow(model='', serial='', reading=''){
-  let box = document.getElementById('customerMachines');
-  if(!box) return;
-  let div = document.createElement('div');
-  div.className = 'grid customer-machine-row';
-  div.style.marginBottom = '8px';
-  div.innerHTML = `<input class="cuMachineModel" placeholder="Machine Model" value="${e(model)}"><input class="cuMachineSerial" placeholder="Machine Serial No." value="${e(serial)}"><input class="cuMachineReading" type="number" min="0" placeholder="Current Reading" value="${e(reading)}"><button type="button" style="background:#b42318" onclick="this.parentElement.remove()">Remove</button>`;
-  box.appendChild(div);
-}
-
-async function saveCustomer(){
-  let name = document.getElementById('cuName').value.trim();
-  let contact = document.getElementById('cuContact').value.trim();
-  if(!name) return alert('Customer Name आवश्यक है');
-
-  let machines = [...document.querySelectorAll('.customer-machine-row')].map(r => ({
-    machine: r.querySelector('.cuMachineModel').value.trim(),
-    serial: r.querySelector('.cuMachineSerial').value.trim(),
-    reading: r.querySelector('.cuMachineReading').value.trim()
-  })).filter(m => m.machine || m.serial || m.reading);
-
-  let existing = editingCustomerId ? db.customers.find(c => c.id === editingCustomerId) : db.customers.find(c => c.name.toLowerCase() === name.toLowerCase());
-  let customer = {
-    name, contact,
-    email: document.getElementById('cuEmail').value.trim(),
-    address: document.getElementById('cuAddress').value.trim(),
-    machines
-  };
-
-  if(existing) Object.assign(existing, customer);
-  else db.customers.push(customer);
-
-  if(supabase) {
-    await supabase.from('customers').insert([{
-      name: customer.name,
-      contact: customer.contact,
-      email: customer.email,
-      machines: customer.machines
-    }]);
-  }
-
-  cancelCustomerEdit();
-  saveDB();
-  alert('Customer Saved!');
-}
-
-function renderCustomers(){
-  let q = (document.getElementById('customerSearch')?.value || '').trim().toLowerCase();
-  let rows = db.customers.filter(c => [c.name, c.contact, c.email, c.address, ...(c.machines||[]).flatMap(m=>[m.machine, m.serial])].some(v => String(v||'').toLowerCase().includes(q)));
-  let tbody = document.getElementById('customerTable');
-  if(tbody) {
-    tbody.innerHTML = rows.map(c => `
-      <tr>
-        <td>${e(c.name)}</td>
-        <td>${e(c.contact||'—')}</td>
-        <td>${(c.machines||[]).length}</td>
-        <td>${(c.machines||[]).map(m => e((m.machine||'')+' / '+(m.serial||''))).join('<br>') || '—'}</td>
-        <td>
-          <button style="width:auto;background:#167a3a" onclick="editCustomer('${e(c.id||c.name)}')">Edit</button>
-          <button style="width:auto;background:#b42318" onclick="deleteCustomer('${e(c.id||c.name)}')">Delete</button>
-        </td>
-      </tr>`).join('') || '<tr><td colspan="5">कोई Customer नहीं मिला</td></tr>';
-  }
-}
-
-function editCustomer(id){
-  let c = db.customers.find(x => (x.id === id || x.name === id));
-  if(!c) return;
-  editingCustomerId = c.id || c.name;
-  document.getElementById('cuName').value = c.name || '';
-  document.getElementById('cuContact').value = c.contact || '';
-  document.getElementById('cuEmail').value = c.email || '';
-  document.getElementById('cuAddress').value = c.address || '';
-  let box = document.getElementById('customerMachines');
-  box.innerHTML = '';
-  (c.machines||[]).forEach(m => addCustomerMachineRow(m.machine||'', m.serial||'', m.reading||''));
-  if(!c.machines || !c.machines.length) addCustomerMachineRow();
-}
-
-function cancelCustomerEdit(){
-  editingCustomerId = null;
-  ['cuName','cuContact','cuEmail','cuAddress'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.value = '';
-  });
-  let box = document.getElementById('customerMachines');
-  if(box) { box.innerHTML = ''; addCustomerMachineRow(); }
-}
-
-function deleteCustomer(id){
-  if(!confirm('Customer delete करना चाहते
+        complaint: r.complaint
