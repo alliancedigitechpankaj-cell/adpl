@@ -1,252 +1,509 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="hi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADPL Service Manager</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f6f9; }
-    h1, h2 { color: #333; }
-    .container { max-width: 1000px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .section { margin-bottom: 30px; border-bottom: 1px solid #ddd; padding-bottom: 20px; }
-    input, select, textarea, button { padding: 8px 12px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; display: block; width: 100%; box-sizing: border-box; }
-    button { background-color: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; width: auto; display: inline-block; }
-    button:hover { background-color: #0056b3; }
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-    th { background-color: #f2f2f2; }
-    .status-badge { padding: 4px 8px; border-radius: 4px; font-size: 12px; color: #fff; }
-    .status-pending { background-color: #ffc107; color: #000; }
-    .status-completed { background-color: #28a745; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alliance Digitech Pvt. Ltd. Service Manager</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial;background:#f3f6fa;color:#172033}
+header{background:#123b6d;color:#fff;padding:14px 18px;display:flex;justify-content:space-between}
+.wrap{max-width:1200px;margin:auto;padding:16px}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 10px #0001}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+input,select,textarea,button{width:100%;padding:10px;border:1px solid #ccd5e0;border-radius:8px}
+button{background:#1769aa;color:#fff;border:0;font-weight:bold;cursor:pointer}
+.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:15px}
+.tabs button{width:auto}
+.hidden{display:none}
+.stat{font-size:25px;font-weight:bold}
+.muted{color:#667085;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:9px;border-bottom:1px solid #e5e7eb;text-align:left}
+th{background:#f7f9fc}
+.low{color:#c62828;font-weight:bold}
+.ok{color:#167a3a;font-weight:bold}
+.login{max-width:380px;margin:80px auto}
+.part-suggestions{position:relative;z-index:5}
+.part-suggestion-list{background:#fff;border:1px solid #ccd5e0;border-radius:8px;max-height:180px;overflow-y:auto;box-shadow:0 4px 12px #0002}
+.part-suggestion-list button{display:block;width:100%;text-align:left;background:#fff;color:#172033;border-radius:0;border-bottom:1px solid #edf0f4;font-weight:normal}
+.part-suggestion-list button:hover{background:#eef6ff}
+.brand-lockup{display:flex;align-items:center;gap:12px}
+.brand-lockup h2,.brand-lockup p{margin:0}
+.adpl-logo{width:78px;height:auto;flex-shrink:0}
+.header-logo{width:68px}
+.brand-lockup h1{font-size:24px;margin:0}
+@media(max-width:700px){header{flex-wrap:wrap;gap:12px}.brand-lockup h1{font-size:18px}.header-logo{width:52px}}
+</style>
 
-  <!-- 1. Supabase Client SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Supabase JS Client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-<div class="container">
-  <h1>Alliance Digitech Pvt. Ltd. - Service Manager</h1>
-
-  <!-- CUSTOMER SECTION -->
-  <div class="section">
-    <h2>1. Customer Management</h2>
-    <form id="customerForm">
-      <input type="text" id="custName" placeholder="Customer Name" required>
-      <input type="text" id="custContact" placeholder="Contact Number" required>
-      <input type="email" id="custEmail" placeholder="Email Address">
-      <textarea id="custMachines" placeholder='Machines (JSON format e.g. [{"name":"Model X","sn":"123"}])'></textarea>
-      <button type="submit">Add Customer</button>
-    </form>
-
-    <h3>Customer List</h3>
-    <table id="customerTable">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Name</th>
-          <th>Contact</th>
-          <th>Email</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+<div id="login" class="login card">
+  <div class="brand-lockup">
+    <img class="adpl-logo" src="data:image/webp;base64,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" alt="ADPL Logo">
+    <div>
+      <h2>Alliance Digitech Pvt. Ltd.</h2>
+      <p class="muted">Service & Stock Management</p>
+    </div>
   </div>
+  <p class="muted">Service & Stock Management</p>
+  <input id="lu" placeholder="User" value="Alliance"><br><br>
+  <input id="lp" type="password" placeholder="Password"><br><br>
+  <button onclick="login()">Login</button>
+  <p id="loginErr" class="low"></p>
+</div>
 
-  <!-- SERVICE REPORT SECTION -->
-  <div class="section">
-    <h2>2. Service Reports</h2>
-    <form id="reportForm">
-      <input type="text" id="scnNo" placeholder="SCN No" required>
-      <input type="text" id="reportCustomer" placeholder="Customer Name" required>
-      <input type="date" id="serviceDate" required>
-      <input type="text" id="machine" placeholder="Machine Name">
-      <input type="text" id="engineer" placeholder="Engineer Name">
-      <textarea id="complaint" placeholder="Complaint Details"></textarea>
-      <textarea id="workDone" placeholder="Work Done Details"></textarea>
-      <button type="submit">Save Service Report</button>
-    </form>
+<div id="app" class="hidden">
+  <header>
+    <div class="brand-lockup">
+      <img class="adpl-logo header-logo" src="data:image/webp;base64,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" alt="ADPL Logo">
+      <h1>Alliance Digitech Pvt. Ltd. — Service Manager</h1>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button style="width:auto;background:#fff;color:#123b6d" onclick="backupData()">Backup Download</button>
+      <button style="width:auto;background:#fff;color:#123b6d" onclick="document.getElementById('restoreFile').click()">Restore Backup</button>
+      <input id="restoreFile" type="file" accept=".json,application/json" style="display:none" onchange="restoreData(event)">
+      <button style="width:auto;background:#fff;color:#123b6d" onclick="changePassword()">Change Password</button>
+      <button style="width:auto;background:#fff;color:#123b6d" onclick="logout()">Logout</button>
+    </div>
+  </header>
 
-    <h3>Service Reports List</h3>
-    <table id="reportTable">
-      <thead>
-        <tr>
-          <th>SCN No</th>
-          <th>Customer</th>
-          <th>Date</th>
-          <th>Machine</th>
-          <th>Engineer</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-  </div>
+  <div class="wrap">
+    <div class="card" style="border:1px solid #b7d8f5;background:#f7fbff">
+      <strong>Data Backup:</strong> Backup Download दबाकर JSON फाइल अपने कंप्यूटर के किसी Local Folder में सेव करें। डेटा वापस लाने के लिए Restore Backup दबाकर वही फाइल चुनें।
+      <div class="muted">Backup में Customer, Machines, Service Reports और Stock Inventory शामिल हैं।</div>
+    </div>
 
-  <!-- STOCK INVENTORY SECTION -->
-  <div class="section">
-    <h2>3. Stock Inventory</h2>
-    <form id="stockForm">
-      <input type="text" id="partName" placeholder="Part Name" required>
-      <input type="text" id="partCode" placeholder="Part Code">
-      <input type="number" id="partQty" placeholder="Quantity" value="0" required>
-      <input type="number" id="minStock" placeholder="Minimum Stock" value="0">
-      <button type="submit">Add / Update Part</button>
-    </form>
+    <div class="tabs">
+      <button onclick="show('dash')">Dashboard</button>
+      <button onclick="show('service')">Service Report</button>
+      <button onclick="show('customers')">Customer Add / View</button>
+      <button onclick="show('stock')">Stock Inventory</button>
+      <button onclick="show('parts')">Part Tracking</button>
+      <button onclick="show('reports')">Reports / Reading</button>
+      <button onclick="show('users')">Multi User / Permissions</button>
+    </div>
 
-    <h3>Current Stock</h3>
-    <table id="stockTable">
-      <thead>
-        <tr>
-          <th>Part Name</th>
-          <th>Part Code</th>
-          <th>Quantity</th>
-          <th>Min Stock</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <!-- DASHBOARD -->
+    <section id="dash" class="card">
+      <h2>Dashboard</h2>
+      <div class="grid">
+        <div class="card"><div class="muted">Total Service Reports</div><div class="stat" id="sReports">0</div></div>
+        <div class="card"><div class="muted">Pending</div><div class="stat" id="sPending">0</div></div>
+        <div class="card"><div class="muted">Stock Items</div><div class="stat" id="sItems">0</div></div>
+        <div class="card"><div class="muted">Low Stock</div><div class="stat low" id="sLow">0</div></div>
+      </div>
+    </section>
+
+    <!-- SERVICE REPORT -->
+    <section id="service" class="card hidden">
+      <h2>New Service Report</h2>
+      <div class="card" style="background:#f7faff;border:1px solid #d8e6f5">
+        <h3 style="margin-top:0">Existing Customer / Machine Search</h3>
+        <p class="muted">Company Name, Contact, Machine Model या Serial No. खोजें।</p>
+        <input id="newReportSearch" placeholder="Search by company, serial no., machine..." oninput="searchExistingForNewReport()">
+        <div id="newReportSearchResults" style="margin-top:10px"></div>
+      </div>
+      <div class="grid">
+        <input id="srScnNo" placeholder="SCN No.">
+        <input id="srCustomer" placeholder="Customer / Company">
+        <input id="srContact" placeholder="Contact No.">
+        <textarea id="srAddress" rows="2" placeholder="Customer Address"></textarea>
+        <input id="srMachine" placeholder="Machine / Model">
+        <input id="srSerial" placeholder="Serial No.">
+        <input id="srReading" type="number" min="0" placeholder="Machine Reading / Counter">
+        <input id="srDate" type="date">
+        <input id="srEngineer" placeholder="Engineer">
+        <select id="srStatus"><option>Pending</option><option>Completed</option><option>Follow-up</option></select>
+      </div>
+      <br><textarea id="srComplaint" rows="3" placeholder="Complaint / Problem"></textarea>
+      <br><br><textarea id="srWork" rows="3" placeholder="Work Done / Remarks"></textarea>
+      <br><br>
+      <h3>Part Used (अधिकतम 4 Parts)</h3>
+      <div class="grid">
+        <div><input id="srPart" placeholder="Part 1 Name / Code" autocomplete="off" oninput="searchStockParts(1)"><div id="srPartSuggest1" class="part-suggestions"></div><input id="srQty" type="number" min="1" value="1" placeholder="Part 1 Qty"></div>
+        <div><input id="srPart2" placeholder="Part 2 Name / Code" autocomplete="off" oninput="searchStockParts(2)"><div id="srPartSuggest2" class="part-suggestions"></div><input id="srQty2" type="number" min="1" value="1" placeholder="Part 2 Qty"></div>
+        <div><input id="srPart3" placeholder="Part 3 Name / Code" autocomplete="off" oninput="searchStockParts(3)"><div id="srPartSuggest3" class="part-suggestions"></div><input id="srQty3" type="number" min="1" value="1" placeholder="Part 3 Qty"></div>
+        <div><input id="srPart4" placeholder="Part 4 Name / Code" autocomplete="off" oninput="searchStockParts(4)"><div id="srPartSuggest4" class="part-suggestions"></div><input id="srQty4" type="number" min="1" value="1" placeholder="Part 4 Qty"></div>
+      </div>
+      <br><button onclick="saveReport()">Save Service Report</button>
+    </section>
+
+    <!-- CUSTOMERS -->
+    <section id="customers" class="card hidden">
+      <h2>Customer Add / View</h2>
+      <div class="grid">
+        <input id="cuName" placeholder="Customer / Company Name">
+        <input id="cuContact" placeholder="Contact Number">
+        <input id="cuEmail" placeholder="Email (optional)">
+        <input id="cuAddress" placeholder="Address (optional)">
+      </div>
+      <br><h3>Machine Details (Multiple Machines)</h3>
+      <div id="customerMachines"></div>
+      <br>
+      <button type="button" style="width:auto" onclick="addCustomerMachineRow()">+ Add Another Machine</button>
+      <button type="button" style="width:auto;background:#167a3a" id="saveCustomerBtn" onclick="saveCustomer()">Save Customer</button>
+      <button type="button" style="width:auto;background:#667085" onclick="cancelCustomerEdit()">Cancel Edit</button>
+      <hr>
+      <h3>Customer List / Search</h3>
+      <input id="customerSearch" placeholder="Search: Company, Contact, Serial No." oninput="renderCustomers()">
+      <br><br>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Customer / Company</th><th>Contact</th><th>Machines</th><th>Machine Model / Serial No.</th><th>Action</th></tr></thead>
+          <tbody id="customerTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- STOCK INVENTORY -->
+    <section id="stock" class="card hidden">
+      <h2>Stock Inventory</h2>
+      <div class="card" style="background:#f7fbff;border:1px solid #d8e6f5">
+        <h3>Stock Challan Entry</h3>
+        <div class="grid">
+          <input id="challanNo" placeholder="Stock Challan No.">
+          <input id="challanDate" type="date">
+          <input id="challanFrom" placeholder="Supplier / From (optional)">
+        </div>
+        <br><div id="challanRows"></div>
+        <br><button type="button" style="width:auto;background:#167a3a" onclick="saveStockChallan()">Save Stock Challan</button>
+      </div>
+      <h3>Single Part Add / Update</h3>
+      <div class="grid">
+        <div class="part-suggestions">
+          <input id="pName" placeholder="Part Name" oninput="searchInventoryParts(this,'single')">
+          <div id="singlePartSuggest"></div>
+        </div>
+        <input id="pCode" placeholder="Part Code">
+        <input id="pQty" type="number" min="0" placeholder="Opening Qty">
+        <input id="pMin" type="number" min="0" placeholder="Minimum Stock">
+      </div>
+      <br><button onclick="addPart()">Add / Update Part</button>
+      <br><br>
+      <table>
+        <thead><tr><th>Part</th><th>Code</th><th>Available</th><th>Min</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody id="stockTable"></tbody>
+      </table>
+      <hr>
+      <h3>Stock Challan Tracking / Search</h3>
+      <div class="grid">
+        <input id="stockTrackChallan" placeholder="Challan No. search" oninput="renderStockChallanTracking()">
+        <input id="stockTrackPart" placeholder="Part Name / Part Code search" oninput="renderStockChallanTracking()">
+        <input id="stockTrackFrom" type="date" onchange="renderStockChallanTracking()">
+        <input id="stockTrackTo" type="date" onchange="renderStockChallanTracking()">
+      </div>
+      <br><button type="button" style="width:auto" onclick="clearStockChallanFilters()">Clear Filters</button>
+      <br><br>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Challan Date</th><th>Challan No.</th><th>Supplier</th><th>Part Name</th><th>Part Code</th><th>Qty Received</th><th>Action</th></tr></thead>
+          <tbody id="stockChallanTrackTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- REPORTS / READING -->
+    <section id="reports" class="card hidden">
+      <h2>Saved Service Reports / Reading</h2>
+      <input id="reportSearch" placeholder="Search Company, Serial No., SCN No..." oninput="renderReports()">
+      <br><br>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Date</th><th>Report No.</th><th>SCN No.</th><th>Customer</th><th>Machine</th><th>Serial No.</th><th>Reading</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="reportTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PART TRACKING -->
+    <section id="parts" class="card hidden">
+      <h2>Part Tracking</h2>
+      <div class="grid">
+        <input id="partFilterCustomer" placeholder="1. Customer / Company" oninput="renderPartTracking()">
+        <input id="partFilterSerial" placeholder="2. Machine Serial No." oninput="renderPartTracking()">
+        <input id="partFilterName" placeholder="3. Part Name" oninput="renderPartTracking()">
+        <input id="partFilterDate" type="date" oninput="renderPartTracking()">
+      </div>
+      <br><button type="button" style="width:auto" onclick="clearPartFilters()">Clear Filters</button>
+      <br><br>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>Date</th><th>Report</th><th>Customer</th><th>Machine</th><th>Serial No.</th><th>Reading</th><th>Part</th><th>Qty</th></tr></thead>
+          <tbody id="partTable"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MULTI USER PERMISSIONS -->
+    <section id="users" class="card hidden">
+      <h2>Multi User / Permission Management</h2>
+      <div class="grid">
+        <input id="newUserName" placeholder="New User Name">
+        <input id="newUserPassword" type="password" placeholder="Password">
+        <select id="newUserRole"><option value="user">Normal User</option><option value="admin">Admin</option></select>
+      </div>
+      <h3>Permissions</h3>
+      <div class="grid" id="permissionGrid"></div>
+      <br>
+      <button type="button" onclick="createOrUpdateUser()" style="width:auto">Save User</button>
+      <button type="button" onclick="clearUserForm()" style="width:auto;background:#667085">Clear</button>
+      <hr>
+      <h3>Saved Users</h3>
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Action</th></tr></thead>
+          <tbody id="userTable"></tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </div>
 
 <script>
-  // 2. Supabase Configuration & Initialization
-  const SUPABASE_URL = "https://xxjjszhbsyofzqxoqwrd.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_b2Fw1PCsg6qGWTviBrBFLQ_ZiNOUGoL";
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// Supabase Connection Initialization
+const SUPABASE_URL = "https://xxjjszhbsyofzqxoqwrd.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_b2Fw1PCsg6qGWTviBrBFLQ_ZiNOUGoL";
+const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-  // Initial Load
-  window.addEventListener('DOMContentLoaded', () => {
-    loadCustomers();
-    loadReports();
-    loadStock();
+const KEY = 'alliance_digitech_v1';
+let db = JSON.parse(localStorage.getItem(KEY) || '{"reports":[],"parts":[],"customers":[],"stockChallans":[]}');
+db.customers = db.customers || [];
+db.reports = db.reports || [];
+db.parts = db.parts || [];
+db.stockChallans = db.stockChallans || [];
+let editingCustomerId = null;
+
+function e(str){ return (str||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function saveDB(){
+  localStorage.setItem(KEY, JSON.stringify(db));
+  render();
+}
+
+// Initial Sync from Supabase
+async function syncFromSupabase() {
+  if (!supabase) return;
+  try {
+    const { data: custs } = await supabase.from('customers').select('*');
+    if (custs && custs.length) db.customers = custs;
+
+    const { data: reps } = await supabase.from('service_reports').select('*');
+    if (reps && reps.length) {
+      db.reports = reps.map(r => ({
+        id: r.id,
+        scnNo: r.scn_no,
+        customer: r.customer,
+        contact: r.contact,
+        address: r.address,
+        machine: r.machine,
+        serial: r.serial_no,
+        reading: r.reading,
+        date: r.service_date,
+        engineer: r.engineer,
+        status: r.status,
+        complaint: r.complaint,
+        work: r.work_done,
+        partsUsed: r.parts || []
+      }));
+    }
+
+    const { data: stks } = await supabase.from('stock_parts').select('*');
+    if (stks && stks.length) {
+      db.parts = stks.map(s => ({
+        name: s.part_name,
+        code: s.part_code,
+        qty: parseFloat(s.quantity) || 0,
+        min: parseFloat(s.minimum_stock) || 0
+      }));
+    }
+    localStorage.setItem(KEY, JSON.stringify(db));
+    render();
+  } catch(err) {
+    console.log("Supabase sync error:", err);
+  }
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  addCustomerMachineRow();
+  syncFromSupabase();
+});
+
+function backupData(){
+  try{
+    const payload = { app: 'Alliance Digitech Service App', version: 1, backupDate: new Date().toISOString(), data: db };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Alliance_Digitech_Backup_' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    alert('Backup download ho gaya.');
+  } catch(err){ alert('Backup error: ' + err.message); }
+}
+
+function restoreData(event){
+  const file = event.target.files && event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const incoming = parsed.data || parsed;
+      db = {
+        reports: Array.isArray(incoming.reports)?incoming.reports:[],
+        parts: Array.isArray(incoming.parts)?incoming.parts:[],
+        customers: Array.isArray(incoming.customers)?incoming.customers:[],
+        stockChallans: Array.isArray(incoming.stockChallans)?incoming.stockChallans:[]
+      };
+      saveDB();
+      alert('Backup restore ho gaya.');
+    } catch(err){ alert('Restore failed: ' + err.message); }
+  };
+  reader.readAsText(file);
+}
+
+function getPassword(){ return localStorage.getItem('alliance_app_password') || 'Alliance@00'; }
+function login(){
+  const lu = document.getElementById('lu'), lp = document.getElementById('lp'), loginErr = document.getElementById('loginErr');
+  if(lu.value.trim() === 'Alliance' && lp.value === getPassword()){
+    sessionStorage.ok = '1';
+    loginBox();
+  } else loginErr.textContent = 'Invalid User / Password';
+}
+function changePassword(){
+  let current = prompt('Current password:');
+  if(current === null) return;
+  if(current !== getPassword()) return alert('Current password गलत है');
+  let next = prompt('New password (कम से कम 6 characters):');
+  if(!next || next.length < 6) return alert('Password कम से कम 6 characters रखें');
+  let confirmPass = prompt('Confirm new password:');
+  if(next !== confirmPass) return alert('Password match नहीं हुआ');
+  localStorage.setItem('alliance_app_password', next);
+  alert('Password change हो गया।');
+}
+function loginBox(){
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  render();
+}
+function logout(){ sessionStorage.clear(); location.reload(); }
+if(sessionStorage.ok) loginBox();
+
+function show(id){
+  ['dash','service','customers','stock','parts','reports','users'].forEach(x => {
+    const el = document.getElementById(x);
+    if(el) el.classList.toggle('hidden', x !== id);
   });
+  render();
+}
 
-  // ==================== CUSTOMERS ====================
-  async function loadCustomers() {
-    const { data, error } = await supabase.from('customers').select('*').order('id', { ascending: false });
-    if (error) { console.error('Error loading customers:', error); return; }
-    
-    const tbody = document.querySelector('#customerTable tbody');
-    tbody.innerHTML = '';
-    data.forEach(c => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${c.id}</td>
-          <td>${c.name || '-'}</td>
-          <td>${c.contact || '-'}</td>
-          <td>${c.email || '-'}</td>
-        </tr>`;
-    });
+function render(){
+  document.getElementById('sReports').textContent = db.reports.length;
+  document.getElementById('sPending').textContent = db.reports.filter(r => r.status === 'Pending').length;
+  document.getElementById('sItems').textContent = db.parts.length;
+  document.getElementById('sLow').textContent = db.parts.filter(p => p.qty <= p.min).length;
+  renderCustomers();
+  renderReports();
+  renderStock();
+  renderPartTracking();
+}
+
+// CUSTOMERS
+function addCustomerMachineRow(model='', serial='', reading=''){
+  let box = document.getElementById('customerMachines');
+  if(!box) return;
+  let div = document.createElement('div');
+  div.className = 'grid customer-machine-row';
+  div.style.marginBottom = '8px';
+  div.innerHTML = `<input class="cuMachineModel" placeholder="Machine Model" value="${e(model)}"><input class="cuMachineSerial" placeholder="Machine Serial No." value="${e(serial)}"><input class="cuMachineReading" type="number" min="0" placeholder="Current Reading" value="${e(reading)}"><button type="button" style="background:#b42318" onclick="this.parentElement.remove()">Remove</button>`;
+  box.appendChild(div);
+}
+
+async function saveCustomer(){
+  let name = document.getElementById('cuName').value.trim();
+  let contact = document.getElementById('cuContact').value.trim();
+  if(!name) return alert('Customer Name आवश्यक है');
+
+  let machines = [...document.querySelectorAll('.customer-machine-row')].map(r => ({
+    machine: r.querySelector('.cuMachineModel').value.trim(),
+    serial: r.querySelector('.cuMachineSerial').value.trim(),
+    reading: r.querySelector('.cuMachineReading').value.trim()
+  })).filter(m => m.machine || m.serial || m.reading);
+
+  let existing = editingCustomerId ? db.customers.find(c => c.id === editingCustomerId) : db.customers.find(c => c.name.toLowerCase() === name.toLowerCase());
+  let customer = {
+    name, contact,
+    email: document.getElementById('cuEmail').value.trim(),
+    address: document.getElementById('cuAddress').value.trim(),
+    machines
+  };
+
+  if(existing) Object.assign(existing, customer);
+  else db.customers.push(customer);
+
+  if(supabase) {
+    await supabase.from('customers').insert([{
+      name: customer.name,
+      contact: customer.contact,
+      email: customer.email,
+      machines: customer.machines
+    }]);
   }
 
-  document.getElementById('customerForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    let machinesArr = [];
-    try {
-      const val = document.getElementById('custMachines').value;
-      if (val) machinesArr = JSON.parse(val);
-    } catch(err) {
-      alert("Machines JSON Invalid format!");
-      return;
-    }
+  cancelCustomerEdit();
+  saveDB();
+  alert('Customer Saved!');
+}
 
-    const newCustomer = {
-      name: document.getElementById('custName').value,
-      contact: document.getElementById('custContact').value,
-      email: document.getElementById('custEmail').value,
-      machines: machinesArr
-    };
-
-    const { error } = await supabase.from('customers').insert([newCustomer]);
-    if (error) {
-      alert('Error adding customer: ' + error.message);
-    } else {
-      alert('Customer added successfully!');
-      document.getElementById('customerForm').reset();
-      loadCustomers();
-    }
-  });
-
-  // ==================== SERVICE REPORTS ====================
-  async function loadReports() {
-    const { data, error } = await supabase.from('service_reports').select('*').order('id', { ascending: false });
-    if (error) { console.error('Error loading reports:', error); return; }
-
-    const tbody = document.querySelector('#reportTable tbody');
-    tbody.innerHTML = '';
-    data.forEach(r => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${r.scn_no || '-'}</td>
-          <td>${r.customer || '-'}</td>
-          <td>${r.service_date || '-'}</td>
-          <td>${r.machine || '-'}</td>
-          <td>${r.engineer || '-'}</td>
-          <td><span class="status-badge status-pending">${r.status || 'Pending'}</span></td>
-        </tr>`;
-    });
+function renderCustomers(){
+  let q = (document.getElementById('customerSearch')?.value || '').trim().toLowerCase();
+  let rows = db.customers.filter(c => [c.name, c.contact, c.email, c.address, ...(c.machines||[]).flatMap(m=>[m.machine, m.serial])].some(v => String(v||'').toLowerCase().includes(q)));
+  let tbody = document.getElementById('customerTable');
+  if(tbody) {
+    tbody.innerHTML = rows.map(c => `
+      <tr>
+        <td>${e(c.name)}</td>
+        <td>${e(c.contact||'—')}</td>
+        <td>${(c.machines||[]).length}</td>
+        <td>${(c.machines||[]).map(m => e((m.machine||'')+' / '+(m.serial||''))).join('<br>') || '—'}</td>
+        <td>
+          <button style="width:auto;background:#167a3a" onclick="editCustomer('${e(c.id||c.name)}')">Edit</button>
+          <button style="width:auto;background:#b42318" onclick="deleteCustomer('${e(c.id||c.name)}')">Delete</button>
+        </td>
+      </tr>`).join('') || '<tr><td colspan="5">कोई Customer नहीं मिला</td></tr>';
   }
+}
 
-  document.getElementById('reportForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const newReport = {
-      scn_no: document.getElementById('scnNo').value,
-      customer: document.getElementById('reportCustomer').value,
-      service_date: document.getElementById('serviceDate').value,
-      machine: document.getElementById('machine').value,
-      engineer: document.getElementById('engineer').value,
-      complaint: document.getElementById('complaint').value,
-      work_done: document.getElementById('workDone').value
-    };
+function editCustomer(id){
+  let c = db.customers.find(x => (x.id === id || x.name === id));
+  if(!c) return;
+  editingCustomerId = c.id || c.name;
+  document.getElementById('cuName').value = c.name || '';
+  document.getElementById('cuContact').value = c.contact || '';
+  document.getElementById('cuEmail').value = c.email || '';
+  document.getElementById('cuAddress').value = c.address || '';
+  let box = document.getElementById('customerMachines');
+  box.innerHTML = '';
+  (c.machines||[]).forEach(m => addCustomerMachineRow(m.machine||'', m.serial||'', m.reading||''));
+  if(!c.machines || !c.machines.length) addCustomerMachineRow();
+}
 
-    const { error } = await supabase.from('service_reports').insert([newReport]);
-    if (error) {
-      alert('Error saving service report: ' + error.message);
-    } else {
-      alert('Service Report saved successfully!');
-      document.getElementById('reportForm').reset();
-      loadReports();
-    }
+function cancelCustomerEdit(){
+  editingCustomerId = null;
+  ['cuName','cuContact','cuEmail','cuAddress'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.value = '';
   });
+  let box = document.getElementById('customerMachines');
+  if(box) { box.innerHTML = ''; addCustomerMachineRow(); }
+}
 
-  // ==================== STOCK PARTS ====================
-  async function loadStock() {
-    const { data, error } = await supabase.from('stock_parts').select('*').order('id', { ascending: false });
-    if (error) { console.error('Error loading stock:', error); return; }
-
-    const tbody = document.querySelector('#stockTable tbody');
-    tbody.innerHTML = '';
-    data.forEach(s => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${s.part_name || '-'}</td>
-          <td>${s.part_code || '-'}</td>
-          <td>${s.quantity}</td>
-          <td>${s.minimum_stock}</td>
-        </tr>`;
-    });
-  }
-
-  document.getElementById('stockForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const newPart = {
-      part_name: document.getElementById('partName').value,
-      part_code: document.getElementById('partCode').value,
-      quantity: parseFloat(document.getElementById('partQty').value) || 0,
-      minimum_stock: parseFloat(document.getElementById('minStock').value) || 0
-    };
-
-    const { error } = await supabase.from('stock_parts').insert([newPart]);
-    if (error) {
-      alert('Error saving stock part: ' + error.message);
-    } else {
-      alert('Stock Part saved successfully!');
-      document.getElementById('stockForm').reset();
-      loadStock();
-    }
-  });
-</script>
-
-</body>
-</html>
+function deleteCustomer(id){
+  if(!confirm('Customer delete करना चाहते
