@@ -438,4 +438,78 @@ cloudListenForChanges=function(){
   }catch(e){cloudStatus('Live update setup error: '+e.message,true)}
 };
 
+
+// ===== Supabase user_permissions integration (metadata only; never upload passwords) =====
+async function adplGetCloudAuthUser(){
+  const client=cloudClient();
+  const {data,error}=await client.auth.getUser();
+  if(error) throw error;
+  if(!data.user) throw new Error('Cloud Sign In पहले करें।');
+  return data.user;
+}
+async function adplSaveUsersToCloud(){
+  const user=await adplGetCloudAuthUser();
+  const client=cloudClient();
+  const users=readUsers();
+  // Passwords are intentionally excluded. user_id records which authenticated admin owns this user list.
+  const rows=users.map(u=>({user_id:user.id,username:u.username,role:u.role,permissions:u.perms||{},created_at:u.created_at||new Date().toISOString()}));
+  const {error:delError}=await client.from('user_permissions').delete().eq('user_id',user.id);
+  if(delError) throw delError;
+  if(rows.length){const {error:insError}=await client.from('user_permissions').insert(rows);if(insError)throw insError;}
+  cloudStatus('User permissions Supabase में सेव ✓ ('+rows.length+' users). Passwords security के लिए cloud table में नहीं रखे गए।');
+}
+async function adplLoadUsersFromCloud(){
+  try{
+    const user=await adplGetCloudAuthUser();
+    const client=cloudClient();
+    const {data,error}=await client.from('user_permissions').select('username,role,permissions,created_at').eq('user_id',user.id);
+    if(error) throw error;
+    if(!Array.isArray(data)||!data.length)return;
+    const local=readUsers();
+    const merged=data.map(r=>{
+      const old=local.find(x=>String(x.username).toLowerCase()===String(r.username).toLowerCase());
+      return {username:r.username,role:r.role||'user',perms:r.permissions||{},password:old?.password||'',created_at:r.created_at};
+    });
+    // Keep local passwords where available; do not overwrite local login credentials with blanks.
+    const cloudNames=new Set(merged.map(x=>x.username.toLowerCase()));
+    local.forEach(u=>{if(!cloudNames.has(String(u.username).toLowerCase()))merged.push(u)});
+    localStorage.setItem(USER_KEY,JSON.stringify(merged));
+    renderUserTable();
+  }catch(e){cloudStatus('User permissions cloud load नहीं हुआ: '+(e.message||e)+' — user_permissions की RLS policies जाँचें।',true);}
+}
+const _adplCreateOrUpdateUserLocal=createOrUpdateUser;
+createOrUpdateUser=async function(){
+  if(!isAdmin())return alert('केवल Admin user permissions बदल सकता है।');
+  const username=document.getElementById('newUserName').value.trim();
+  const password=document.getElementById('newUserPassword').value;
+  const role=document.getElementById('newUserRole').value;
+  if(!username)return alert('User name भरें');
+  if(username.toLowerCase()==='alliance'&&role!=='admin')return alert('मुख्य Alliance account को Admin ही रखें।');
+  const users=readUsers(); const old=users.find(u=>u.username.toLowerCase()===username.toLowerCase());
+  if(!old&&!password)return alert('नए user का password भरें');
+  if(password&&password.length<6)return alert('Password कम से कम 6 अक्षर का रखें');
+  const perms={}; MODULES.forEach(([m])=>{perms[m]={};ACTIONS.forEach(([a])=>{const el=document.querySelector(`[data-perm-module="${m}"][data-perm-action="${a}"]`);perms[m][a]=!!el?.checked;});});
+  if(old){old.role=role;old.perms=perms;if(password)old.password=password;}else users.push({username,password,role,perms});
+  writeUsers(users); renderUserTable();
+  try{
+    const {data}=await cloudClient().auth.getSession();
+    if(!data.session){alert('यूज़र इस डिवाइस पर सेव हुआ, लेकिन Cloud में नहीं। पहले Supabase Cloud Sign In करें, फिर Save User दोबारा दबाएँ।');return;}
+    await adplSaveUsersToCloud();
+    alert('User और permissions इस डिवाइस तथा Supabase में सेव हुए। ध्यान दें: नया user login करने के लिए उसका password हर डिवाइस पर अलग से सेट/प्रबंधित करना होगा; यह टेबल passwords नहीं रखती।');
+  }catch(e){alert('यूज़र इस डिवाइस पर सेव हुआ, लेकिन Supabase में नहीं: '+(e.message||e)+'\nuser_permissions पर SELECT/INSERT/DELETE RLS policies जाँचें।');cloudStatus('User cloud save failed: '+(e.message||e),true);}
+};
+const _adplRemoveUserLocal=removeUser;
+removeUser=async function(name){
+  if(!isAdmin())return alert('केवल Admin');
+  if(name.toLowerCase()==='alliance')return alert('मुख्य Admin delete नहीं हो सकता।');
+  if(!confirm('User '+name+' को delete करें?'))return;
+  writeUsers(readUsers().filter(u=>u.username!==name));renderUserTable();
+  try{const {data}=await cloudClient().auth.getSession();if(data.session){await adplSaveUsersToCloud();}else cloudStatus('User local से delete हुआ; Cloud update के लिए Cloud Sign In करें।',true);}
+  catch(e){cloudStatus('User local से delete हुआ, Cloud update नहीं हुआ: '+(e.message||e),true);alert('Local delete हुआ, Cloud delete failed: '+(e.message||e));}
+};
+const _adplCloudAutoStartUsers=cloudAutoStart;
+cloudAutoStart=async function(){await _adplCloudAutoStartUsers();try{const {data}=await cloudClient().auth.getSession();if(data.session)await adplLoadUsersFromCloud();}catch(e){console.warn('User permissions load:',e.message);}};
+const _adplCloudSignInUsers=cloudSignIn;
+cloudSignIn=async function(){await _adplCloudSignInUsers();try{const {data}=await cloudClient().auth.getSession();if(data.session)await adplLoadUsersFromCloud();}catch(e){console.warn('User permissions load:',e.message);}};
+
 </script></body></html>
