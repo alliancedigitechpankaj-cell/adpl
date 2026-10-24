@@ -350,8 +350,9 @@ async function cloudAutoStart(){
     if(sessionError) throw sessionError;
     if(!sessionData.session){adplCloudReady=false;cloudStatus('Cloud sign-in required on this browser/device. Sign in once; next time it will reconnect automatically.',true);return;}
     adplCloudReady=true;
-    const localSnapshot=JSON.stringify({app:'Alliance Digitech Service App',version:1,backupDate:new Date().toISOString(),data:db});
-    localStorage.setItem(KEY+'_auto_backup_'+Date.now(),localSnapshot);
+    // Do not store another full copy of the app database in localStorage.
+    // Large datasets can exceed browser quota and prevent cloud auto-connect.
+    // User backups remain available through the separate Download Local Backup button.
     cloudStatus('Cloud session restored. Checking saved data…');
     const {data:remote,error}=await client.from(ADPL_CLOUD_TABLE).select('id,payload,updated_at').eq('id','main').maybeSingle();
     if(error) throw error;
