@@ -237,6 +237,34 @@ const _renderPermissionsV2=render;
 render=function(){_renderPermissionsV2();document.querySelectorAll('#reportTable button').forEach(b=>{const t=b.textContent.trim();if(t==='Delete')b.style.display=(typeof can!=='function'||can('reports','delete'))?'':'none';});};
 
 
+// Merge records without silently dropping different records that happen to share an auto-generated ID.
+function adplMergeKeepRecords(remoteArr, localArr, key){
+  const out=[]; const byKey=new Map();
+  const add=(item,source)=>{
+    if(!item || typeof item!=='object'){out.push(item);return;}
+    let k=item[key]!=null?String(item[key]).trim().toLowerCase():'';
+    if(!k){out.push(item);return;}
+    if(!byKey.has(k)){byKey.set(k,item);out.push(item);return;}
+    const prior=byKey.get(k);
+    if(JSON.stringify(prior)===JSON.stringify(item)) return;
+    // Same key but different contents: retain both; assign a new unique id to the conflicting record.
+    const copy={...item};
+    if(key==='id'){
+      const base=String(copy.id||'record'); let n=2, candidate=base+'-merged-'+n;
+      const ids=new Set(out.map(x=>x&&String(x.id)));
+      while(ids.has(candidate)){n++;candidate=base+'-merged-'+n;}
+      copy.id=candidate;
+    } else if(key==='name' || key==='no') {
+      // For inventory/stock entities, same name/number is the same item; prefer local/latest values rather than double-counting.
+      const idx=out.indexOf(prior); if(idx>=0) out[idx]=copy; byKey.set(k,copy); return;
+    }
+    out.push(copy);
+  };
+  (Array.isArray(remoteArr)?remoteArr:[]).forEach(x=>add(x,'remote'));
+  (Array.isArray(localArr)?localArr:[]).forEach(x=>add(x,'local'));
+  return out;
+}
+
 // Supabase cloud integration. The publishable/anon key is intended for browser use; RLS is mandatory.
 const ADPL_SUPABASE_URL='https://xxjjszhbsyofzqxoqwrd.supabase.co';
 const ADPL_SUPABASE_KEY='sb_publishable_b2Fw1PCsg6qGWTviBrBFLQ_ZiNOUGoL';
@@ -270,16 +298,24 @@ async function cloudSaveOnly(){
   const {data:userData,error:userError}=await client.auth.getUser();
   if(userError)throw userError;
   if(!userData.user)throw new Error('Supabase user session नहीं मिली। दोबारा Cloud Sign In करें।');
-  const {error}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userData.user.id,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});
+  const savePayload=JSON.parse(JSON.stringify(db));
+  const {error}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userData.user.id,payload:savePayload,updated_at:new Date().toISOString()},{onConflict:'id'});
   if(error)throw error;
-  adplCloudReady=true;cloudStatus('✅ Supabase में डेटा save हो गया — '+new Date().toLocaleString('en-IN'));
-  alert('डेटा Supabase में सफलतापूर्वक save हो गया।');
+  const {data:check,error:checkError}=await client.from(ADPL_CLOUD_TABLE).select('id,payload,updated_at').eq('id','main').maybeSingle();
+  if(checkError)throw checkError;
+  if(!check || !check.payload)throw new Error('Save के बाद Supabase से data वापस नहीं पढ़ पाया; RLS SELECT policy जाँचें।');
+  const counts=k=>Array.isArray(k)?k.length:0;
+  const savedReports=counts(check.payload.reports), localReports=counts(savePayload.reports);
+  const savedCustomers=counts(check.payload.customers), localCustomers=counts(savePayload.customers);
+  if(savedReports!==localReports || savedCustomers!==localCustomers) throw new Error('Supabase में record count verify नहीं हुआ। Local reports '+localReports+', cloud reports '+savedReports+'; local customers '+localCustomers+', cloud customers '+savedCustomers+'. डेटा overwrite न करें; backup लें और फिर Sync करें।');
+  adplCloudReady=true;cloudStatus('✅ Supabase save verified — Customers: '+savedCustomers+', Reports: '+savedReports+', Parts: '+counts(check.payload.parts)+', Challans: '+counts(check.payload.stockChallans));
+  alert('Supabase में save और verify हो गया। Reports: '+savedReports+' | Customers: '+savedCustomers+'. अब refresh करके जाँचें।');
  }catch(e){cloudStatus('Save failed: '+(e.message||e),true);alert('Supabase में save नहीं हुआ: '+(e.message||e)+'\nTable/RLS permissions जाँचें। आपका local data browser में सुरक्षित है।');}
  finally{adplCloudBusy=false;}
 }
 async function cloudSignOut(){try{if(adplSupabase)await adplSupabase.auth.signOut();adplCloudReady=false;cloudStatus('Cloud: Signed out');}catch(e){cloudStatus('Sign out error: '+e.message,true);}}
 function makeLocalBackupSnapshot(){const snap={app:'Alliance Digitech Service App',version:1,backupDate:new Date().toISOString(),data:db};localStorage.setItem(KEY+'_pre_cloud_backup_'+Date.now(),JSON.stringify(snap));return snap;}
-async function cloudSyncNow(){if(adplCloudBusy)return alert('Cloud sync पहले से चल रहा है।');try{const client=cloudClient();const {data:sessionData}=await client.auth.getSession();if(!sessionData.session){return alert('पहले Supabase Auth Email/Password से Cloud Sign In करें।');}adplCloudReady=true;adplCloudBusy=true;cloudStatus('Local backup सुरक्षित कर रहे हैं…');makeLocalBackupSnapshot();backupData();const {data:remote,error}=await client.from(ADPL_CLOUD_TABLE).select('id,payload,updated_at').eq('id','main').maybeSingle();if(error)throw error;if(remote&&remote.payload){const choice=confirm('Cloud में पहले से data है। OK = local + cloud records को merge करें; Cancel = मौजूदा local data को cloud पर upload करें। Local backup download किया गया है।');if(choice){const incoming=remote.payload;const merge=(a,b,key)=>{const m=new Map();[...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])].forEach(x=>{const k=x&&x[key]!=null?String(x[key]):JSON.stringify(x);if(!m.has(k))m.set(k,x);});return [...m.values()]};const local=db;db={...incoming,...local,customers:merge(incoming.customers,local.customers,'id'),reports:merge(incoming.reports,local.reports,'id'),parts:merge(incoming.parts,local.parts,'name'),stockChallans:merge(incoming.stockChallans,local.stockChallans,'no')};db.customers=db.customers||[];db.reports=db.reports||[];db.parts=db.parts||[];db.stockChallans=db.stockChallans||[];const seenSCN=new Set();db.reports=db.reports.filter(r=>{const k=String(r.scnNo||'').trim().toLowerCase();if(!k)return true;if(seenSCN.has(k))return false;seenSCN.add(k);return true});const seenChallan=new Set();db.stockChallans=db.stockChallans.filter(c=>{const k=String(c.no||'').trim().toLowerCase();if(!k)return true;if(seenChallan.has(k))return false;seenChallan.add(k);return true});localStorage.setItem(KEY,JSON.stringify(db));render();refreshKeywordSuggestions();}}
+async function cloudSyncNow(){if(adplCloudBusy)return alert('Cloud sync पहले से चल रहा है।');try{const client=cloudClient();const {data:sessionData}=await client.auth.getSession();if(!sessionData.session){return alert('पहले Supabase Auth Email/Password से Cloud Sign In करें।');}adplCloudReady=true;adplCloudBusy=true;cloudStatus('Local backup सुरक्षित कर रहे हैं…');makeLocalBackupSnapshot();backupData();const {data:remote,error}=await client.from(ADPL_CLOUD_TABLE).select('id,payload,updated_at').eq('id','main').maybeSingle();if(error)throw error;if(remote&&remote.payload){const choice=confirm('Cloud में पहले से data है। OK = local + cloud records को merge करें; Cancel = मौजूदा local data को cloud पर upload करें। Local backup download किया गया है।');if(choice){const incoming=remote.payload;const local=db;db={...incoming,...local,customers:adplMergeKeepRecords(incoming.customers,local.customers,'id'),reports:adplMergeKeepRecords(incoming.reports,local.reports,'id'),parts:adplMergeKeepRecords(incoming.parts,local.parts,'name'),stockChallans:adplMergeKeepRecords(incoming.stockChallans,local.stockChallans,'no')};db.customers=db.customers||[];db.reports=db.reports||[];db.parts=db.parts||[];db.stockChallans=db.stockChallans||[];const seenSCN=new Set();db.reports=db.reports.filter(r=>{const k=String(r.scnNo||'').trim().toLowerCase();if(!k)return true;if(seenSCN.has(k))return false;seenSCN.add(k);return true});const seenChallan=new Set();db.stockChallans=db.stockChallans.filter(c=>{const k=String(c.no||'').trim().toLowerCase();if(!k)return true;if(seenChallan.has(k))return false;seenChallan.add(k);return true});localStorage.setItem(KEY,JSON.stringify(db));render();refreshKeywordSuggestions();}}
 cloudStatus('Cloud पर सुरक्षित रूप से save कर रहे हैं…');const {data:userData}=await client.auth.getUser();const userId=userData.user&&userData.user.id;if(!userId)throw new Error('Supabase session नहीं मिली। दोबारा sign in करें।');const {error:upsertError}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userId,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});if(upsertError)throw upsertError;cloudStatus('Sync सफल — '+new Date().toLocaleString('en-IN')+' | Customers: '+db.customers.length+', Reports: '+db.reports.length+', Parts: '+db.parts.length+', Challans: '+(db.stockChallans||[]).length);alert('Local backup download और Supabase cloud sync सफल हुआ।');}catch(e){cloudStatus('Sync failed: '+(e.message||e),true);alert('Cloud sync failed: '+(e.message||e)+'\nSupabase table/RLS SQL और Auth user जाँचें। Local data आपके browser में सुरक्षित है।');}finally{adplCloudBusy=false;}}
 function cloudQueueSave(){if(!adplCloudReady)return;clearTimeout(adplCloudTimer);adplCloudTimer=setTimeout(async()=>{if(adplCloudBusy){cloudQueueSave();return;}try{const client=cloudClient();const {data:sessionData,error:se}=await client.auth.getSession();if(se)throw se;if(!sessionData.session){adplCloudReady=false;cloudStatus('Cloud session expired — sign in again.',true);return;}const {data:userData,error:ue}=await client.auth.getUser();if(ue)throw ue;if(!userData.user)throw new Error('Auth user नहीं मिला');const {error}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:userData.user.id,payload:db,updated_at:new Date().toISOString()},{onConflict:'id'});if(error)throw error;cloudStatus('Auto-sync saved ✓ '+new Date().toLocaleTimeString('en-IN'));}catch(e){cloudStatus('Auto-sync error: '+(e.message||e)+' — इंटरनेट लौटने पर फिर कोशिश होगी।',true);if(navigator.onLine&&adplCloudReady){clearTimeout(adplCloudTimer);adplCloudTimer=setTimeout(cloudQueueSave,5000);}}},1000);}
 
@@ -294,10 +330,9 @@ function cloudListenForChanges(){
         const incoming=payload.new&&payload.new.payload;if(!incoming||!sessionStorage.ok)return;
         try{
           const arrays=['customers','reports','parts','stockChallans'];
-          const merge=(remoteArr,localArr,key)=>{const m=new Map();(Array.isArray(remoteArr)?remoteArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);m.set(k,x)});(Array.isArray(localArr)?localArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);if(!m.has(k))m.set(k,x)});return [...m.values()]};
           const local=db;window.adplApplyingRemote=true;
           db={...incoming,...local};
-          arrays.forEach(k=>{db[k]=merge(incoming[k],local[k],k==='parts'?'name':k==='stockChallans'?'no':'id')});
+          arrays.forEach(k=>{db[k]=adplMergeKeepRecords(incoming[k],local[k],k==='parts'?'name':k==='stockChallans'?'no':'id')});
           db.customers=db.customers||[];db.reports=db.reports||[];db.parts=db.parts||[];db.stockChallans=db.stockChallans||[];
           localStorage.setItem(KEY,JSON.stringify(db));render();refreshKeywordSuggestions();
           cloudStatus('Cloud live update received ✓ '+new Date().toLocaleTimeString('en-IN'));
@@ -327,8 +362,7 @@ async function cloudAutoStart(){
       const cloudHas=arrays.some(k=>Array.isArray(incoming[k])&&incoming[k].length);
       if(!localHas && cloudHas){ db={...incoming}; }
       else if(localHas && cloudHas){
-        const merge=(remoteArr,localArr,key)=>{const m=new Map();(Array.isArray(remoteArr)?remoteArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);if(!m.has(k))m.set(k,x)});(Array.isArray(localArr)?localArr:[]).forEach(x=>{const k=x&&x[key]!=null?String(x[key]).trim().toLowerCase():JSON.stringify(x);if(!m.has(k))m.set(k,x)});return [...m.values()]};
-        db={...incoming,...db,customers:merge(incoming.customers,db.customers,'id'),reports:merge(incoming.reports,db.reports,'id'),parts:merge(incoming.parts,db.parts,'name'),stockChallans:merge(incoming.stockChallans,db.stockChallans,'no')};
+        db={...incoming,...db,customers:adplMergeKeepRecords(incoming.customers,db.customers,'id'),reports:adplMergeKeepRecords(incoming.reports,db.reports,'id'),parts:adplMergeKeepRecords(incoming.parts,db.parts,'name'),stockChallans:adplMergeKeepRecords(incoming.stockChallans,db.stockChallans,'no')};
       }
       db.customers=db.customers||[];db.reports=db.reports||[];db.parts=db.parts||[];db.stockChallans=db.stockChallans||[];
       const scn=new Set();db.reports=db.reports.filter(r=>{const k=String(r.scnNo||'').trim().toLowerCase();if(!k)return true;if(scn.has(k))return false;scn.add(k);return true});
