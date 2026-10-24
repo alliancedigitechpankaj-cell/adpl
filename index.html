@@ -385,4 +385,57 @@ setTimeout(()=>{if(sessionStorage.ok)cloudAutoStart()},700);
 // When the saved session is restored, keep the status and auto-sync active.
 setTimeout(()=>{try{const c=cloudClient();c.auth.onAuthStateChange((event,session)=>{if(session&&session.user&&sessionStorage.ok){adplCloudReady=true;if(event==='SIGNED_IN'){setTimeout(()=>cloudAutoStart(),0);}else{cloudStatus('Cloud auto-connected — automatic saving active.');}}else if(event==='SIGNED_OUT'){adplCloudReady=false;cloudStatus('Cloud session ended. Please sign in again on this device.',true);}})}catch(e){cloudStatus('Cloud reconnect waiting: '+(e.message||e),true)}},900);
 
+
+// ===== Cloud delete propagation fix =====
+// Deletions must be written as the complete current dataset immediately; never merge deleted rows back from realtime.
+async function adplCloudPersistCurrentData(reason='बदलाव'){
+  try{
+    const client=cloudClient();
+    const {data:sd,error:se}=await client.auth.getSession();
+    if(se) throw se;
+    if(!sd.session){adplCloudReady=false;cloudStatus('⚠️ '+reason+' केवल इस डिवाइस पर हुआ। Cloud Sign In करें, फिर Save Data to Supabase दबाएँ।',true);return false;}
+    const {data:ud,error:ue}=await client.auth.getUser(); if(ue) throw ue;
+    if(!ud.user) throw new Error('Supabase session user नहीं मिला');
+    const payload=JSON.parse(JSON.stringify(db));
+    const {error}=await client.from(ADPL_CLOUD_TABLE).upsert({id:'main',owner_id:ud.user.id,payload,updated_at:new Date().toISOString()},{onConflict:'id'});
+    if(error) throw error;
+    const {data:verify,error:ve}=await client.from(ADPL_CLOUD_TABLE).select('payload,updated_at').eq('id','main').maybeSingle();
+    if(ve) throw ve;
+    if(!verify||!verify.payload) throw new Error('Cloud से verification data नहीं मिला');
+    const keys=['customers','reports','parts','stockChallans'];
+    for(const k of keys){ if((payload[k]||[]).length !== (verify.payload[k]||[]).length) throw new Error(k+' count mismatch: local '+(payload[k]||[]).length+', cloud '+(verify.payload[k]||[]).length); }
+    adplCloudReady=true; cloudStatus('✅ '+reason+' Supabase में सेव और verify हुआ।'); return true;
+  }catch(e){cloudStatus('❌ '+reason+' Cloud में सेव नहीं हुआ: '+(e.message||e),true);console.error('ADPL cloud delete sync',e);return false;}
+}
+function adplWrapDelete(fnName, countFn, reason){
+  const original=window[fnName]; if(typeof original!=='function') return;
+  window[fnName]=function(...args){
+    const before=countFn(); const result=original.apply(this,args); const after=countFn();
+    if(after<before){ localStorage.setItem(KEY,JSON.stringify(db)); if(adplCloudReady){ adplCloudPersistCurrentData(reason); } else { cloudStatus('⚠️ '+reason+' local में delete हुआ। Supabase से delete करने के लिए Cloud Sign In करके Save Data to Supabase दबाएँ।',true); } }
+    return result;
+  };
+}
+adplWrapDelete('deleteCustomer',()=> (db.customers||[]).length,'Customer delete');
+adplWrapDelete('delPart',()=> (db.parts||[]).length,'Stock part delete');
+adplWrapDelete('deleteReport',()=> (db.reports||[]).length,'Service Report delete');
+// Incoming full cloud snapshot is authoritative for removals; do not merge deleted rows back into local data.
+const _adplOldCloudListenForChanges=cloudListenForChanges;
+cloudListenForChanges=function(){
+  try{
+    const client=cloudClient();
+    if(adplRealtimeChannel){client.removeChannel(adplRealtimeChannel);adplRealtimeChannel=null;}
+    adplRealtimeChannel=client.channel('adpl-app-data-live-fixed')
+      .on('postgres_changes',{event:'*',schema:'public',table:ADPL_CLOUD_TABLE,filter:'id=eq.main'},payload=>{
+        const incoming=payload.new&&payload.new.payload;if(!incoming||!sessionStorage.ok||adplCloudBusy)return;
+        try{
+          window.adplApplyingRemote=true;
+          db={...db,...incoming};
+          ['customers','reports','parts','stockChallans'].forEach(k=>{db[k]=Array.isArray(incoming[k])?incoming[k]:[];});
+          localStorage.setItem(KEY,JSON.stringify(db));render();refreshKeywordSuggestions();
+          cloudStatus('Cloud से latest data मिला ✓ '+new Date().toLocaleTimeString('en-IN'));
+        }catch(e){cloudStatus('Live update error: '+e.message,true)}finally{window.adplApplyingRemote=false}
+      }).subscribe();
+  }catch(e){cloudStatus('Live update setup error: '+e.message,true)}
+};
+
 </script></body></html>
